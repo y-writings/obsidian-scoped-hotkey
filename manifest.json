@@ -1,0 +1,10 @@
+{
+	"id": "scoped-hotkey",
+	"name": "Scoped Hotkey",
+	"version": "0.1.0",
+	"minAppVersion": "1.13.0",
+	"description": "Inspect workspace context for scoped hotkey rules.",
+	"author": "Yoshiro M",
+	"authorUrl": "https://github.com/y-writings",
+	"isDesktopOnly": false
+}
