@@ -59,6 +59,40 @@ describe("inspectWorkspaceContext", () => {
     expect(context.focusedElement?.tagName).toBe("input");
     expect(context.focusedElement?.isTextInput).toBe(true);
   });
+
+  it("resolves a containing leaf through the shadow root host", () => {
+    const rootSplit = {};
+    const container = document.createElement("div");
+    const host = document.createElement("div");
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    const input = document.createElement("input");
+    shadowRoot.append(input);
+    container.append(host);
+    document.body.append(container);
+    const leaf = {
+      view: {
+        containerEl: container,
+        getViewType: () => "shadow-view",
+        getDisplayText: () => "Shadow view",
+      },
+      getContainer: () => ({}),
+      getRoot: () => rootSplit,
+    };
+    const shadowApp = {
+      workspace: {
+        rootSplit,
+        leftSplit: {},
+        rightSplit: {},
+        iterateAllLeaves: (callback: (candidate: typeof leaf) => void) => callback(leaf),
+      },
+    } as unknown as App;
+
+    const context = inspectWorkspaceContext(shadowApp, input, null);
+
+    expect(context.area).toBe("main");
+    expect(context.viewType).toBe("shadow-view");
+    expect(context.leafSource).toBe("clicked-element");
+  });
 });
 
 describe("asElement", () => {

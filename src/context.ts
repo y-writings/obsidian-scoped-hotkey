@@ -140,7 +140,7 @@ function findContainingLeaf(app: App, element: Element): WorkspaceLeaf | null {
 
     if (
       container.ownerDocument === element.ownerDocument &&
-      container.contains(element) &&
+      containsComposedElement(container, element) &&
       (matchContainer === null || matchContainer.contains(container))
     ) {
       match = leaf;
@@ -149,6 +149,22 @@ function findContainingLeaf(app: App, element: Element): WorkspaceLeaf | null {
   });
 
   return match;
+}
+
+function containsComposedElement(container: Element, element: Element): boolean {
+  let candidate: Element | null = element;
+
+  while (candidate !== null) {
+    if (container.contains(candidate)) {
+      return true;
+    }
+
+    const root = candidate.getRootNode();
+    const host = "host" in root ? (root.host as EventTarget) : null;
+    candidate = asDomElement(host);
+  }
+
+  return false;
 }
 
 function classifyArea(app: App, leaf: WorkspaceLeaf): WorkspaceArea {
