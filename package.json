@@ -1,0 +1,28 @@
+{
+	"name": "obsidian-scoped-hotkey",
+	"version": "0.1.0",
+	"description": "Inspect Obsidian workspace context for scoped hotkey rules.",
+	"main": "main.js",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"lint": "eslint .",
+		"test": "vitest run",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"author": "Yoshiro M",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.15.17",
+		"esbuild": "0.25.5",
+		"eslint": "^9.39.4",
+		"eslint-plugin-obsidianmd": "^0.4.0",
+		"globals": "^17.6.0",
+		"happy-dom": "^20.11.6",
+		"obsidian": "latest",
+		"typescript": "^5.8.3",
+		"vitest": "^4.1.11"
+	}
+}
