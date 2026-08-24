@@ -127,15 +127,18 @@ export class ContextModal extends Modal {
         this.formatComparison(this.context.activeLeafMatchesInspectedLeaf),
       ],
     ]);
+    const elementGrid = diagnostics.createDiv({
+      cls: "scoped-hotkey-inspector__element-grid",
+    });
     this.createElementDiagnostics(
-      diagnostics,
+      elementGrid,
       "Focused element",
       "scoped-hotkey-inspector__focused-element",
       this.context.focusedElement,
     );
     if (this.context.selectedElement !== null) {
       this.createElementDiagnostics(
-        diagnostics,
+        elementGrid,
         "Selected element",
         "scoped-hotkey-inspector__selected-element",
         this.context.selectedElement,

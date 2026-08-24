@@ -434,7 +434,13 @@ describe("ContextModal", () => {
       modal.contentEl,
       ".scoped-hotkey-inspector__selected-element",
     );
+    const elementGrid = getRequiredElement(
+      modal.contentEl,
+      ".scoped-hotkey-inspector__element-grid",
+    );
 
+    expect(elementGrid.contains(focused)).toBe(true);
+    expect(elementGrid.contains(selected)).toBe(true);
     expect(focused.textContent).toContain("Focused element");
     expect(focused.textContent).toContain("Tag");
     expect(focused.textContent).toContain("input");
@@ -457,10 +463,18 @@ describe("ContextModal", () => {
 
   it("omits selected element diagnostics when no element was selected", () => {
     const modal = openModal(createContext({ selectedElement: null }));
+    const elementGrid = getRequiredElement(
+      modal.contentEl,
+      ".scoped-hotkey-inspector__element-grid",
+    );
+    const focused = getRequiredElement(
+      elementGrid,
+      ".scoped-hotkey-inspector__focused-element",
+    );
 
-    expect(
-      modal.contentEl.querySelector(".scoped-hotkey-inspector__selected-element"),
-    ).toBeNull();
+    expect(elementGrid.children).toHaveLength(1);
+    expect(elementGrid.firstElementChild).toBe(focused);
+    expect(elementGrid.querySelector(".scoped-hotkey-inspector__selected-element")).toBeNull();
   });
 
   it("copies the exact visible condition and reports success", async () => {
