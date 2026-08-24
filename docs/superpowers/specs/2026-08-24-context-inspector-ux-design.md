@@ -179,9 +179,8 @@ Modal tests will cover:
 - Primary actions being native keyboard-focusable controls.
 - Difference messaging for selected versus focused panes.
 
-Repository verification will run `npm test`, `npm run lint`, and `npm run build`. Generated
-`main.js` is committed because it is one of the loadable plugin artifacts already tracked by
-the repository.
+Repository verification will run `npm test`, `npm run lint`, and `npm run build`. The build
+generates the loadable `main.js`, which remains ignored as a local build artifact.
 
 ## Documentation
 
