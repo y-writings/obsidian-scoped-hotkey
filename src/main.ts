@@ -1,19 +1,46 @@
 import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 
-import { asElement, inspectWorkspaceContext } from "./context";
+import {
+  asElement,
+  findContainingLeaf,
+  getDeepestActiveElement,
+  inspectCurrentWorkspaceContext,
+  inspectSelectedWorkspaceContext,
+  type WorkspaceContext,
+} from "./context";
 import { ContextModal } from "./context-modal";
+import { PanePicker, type PanePickerStopReason } from "./pane-picker";
+
+const PICKER_PROMPT =
+  "Select a workspace pane. Press Escape or Cancel to stop. Selection times out in 30 seconds.";
+const INVALID_PICKER_PROMPT =
+  "Select a workspace pane. Ribbon, title bar, status bar, and modal controls are not panes.";
 
 export default class ScopedHotkeyPlugin extends Plugin {
   private activeLeaf: WorkspaceLeaf | null = null;
-  private inspectionArmed = false;
-  private armTimer: number | null = null;
+  private readonly focusedElements = new WeakMap<Document, Element>();
   private readonly observedDocuments = new Set<Document>();
+  private pickerNotice: Notice | null = null;
+  private readonly picker = new PanePicker({
+    timeoutMs: 30_000,
+    resolvePane: (element) => findContainingLeaf(this.app, element)?.view.containerEl ?? null,
+    onSelect: (element) => this.inspectSelectedPane(element),
+    onInvalidSelection: () => this.showPickerStatus(INVALID_PICKER_PROMPT),
+    onStop: (reason) => this.handlePickerStop(reason),
+  });
 
   override onload(): void {
+    this.activeLeaf = this.app.workspace.getMostRecentLeaf();
+
+    this.addCommand({
+      id: "inspect-current-context",
+      name: "Inspect current context",
+      callback: () => this.inspectCurrentContext(),
+    });
     this.addCommand({
       id: "inspect-next-click-context",
-      name: "Inspect next click context",
-      callback: () => this.armInspection(),
+      name: "Select pane to inspect",
+      callback: () => this.togglePanePicker(),
     });
 
     this.registerEvent(
@@ -38,60 +65,117 @@ export default class ScopedHotkeyPlugin extends Plugin {
     });
 
     this.register(() => {
-      if (this.armTimer !== null) {
-        window.clearTimeout(this.armTimer);
-      }
+      this.picker.destroy();
 
-      this.inspectionArmed = false;
       for (const observedDocument of this.observedDocuments) {
-        observedDocument.removeEventListener("click", this.handleClick, true);
+        observedDocument.removeEventListener("focusin", this.handleFocusIn, true);
       }
       this.observedDocuments.clear();
     });
   }
 
-  private armInspection(): void {
-    this.inspectionArmed = false;
+  private inspectCurrentContext(): void {
+    const activeLeaf = this.activeLeaf ?? this.app.workspace.getMostRecentLeaf();
+    const relevantDocument =
+      activeLeaf?.view.containerEl.ownerDocument ?? this.app.workspace.containerEl.ownerDocument;
+    const focusedElement = this.getFocusedWorkspaceElement(relevantDocument);
+    const context = inspectCurrentWorkspaceContext(this.app, focusedElement, activeLeaf);
 
-    if (this.armTimer !== null) {
-      window.clearTimeout(this.armTimer);
+    if (context === null) {
+      new Notice("No active workspace context could be inspected.");
+      return;
     }
 
-    this.armTimer = window.setTimeout(() => {
-      this.armTimer = null;
-      this.inspectionArmed = true;
-      new Notice("Click a workspace pane to inspect its context.");
-    }, 0);
+    this.openContextModal(context);
   }
 
-  private readonly handleClick = (event: MouseEvent): void => {
-    if (!this.inspectionArmed) {
-      return;
+  private inspectSelectedPane(selectedElement: Element): void {
+    const focusedElement = this.getFocusedWorkspaceElement(selectedElement.ownerDocument);
+    const context = inspectSelectedWorkspaceContext(
+      this.app,
+      selectedElement,
+      focusedElement,
+      this.activeLeaf,
+    );
+
+    this.openContextModal(context!);
+  }
+
+  private openContextModal(context: WorkspaceContext): void {
+    new ContextModal(this.app, context, {
+      onInspectAnother: () => this.startPanePicker(),
+    }).open();
+  }
+
+  private getFocusedWorkspaceElement(document: Document): Element | null {
+    const focusedElement = getDeepestActiveElement(document);
+    if (focusedElement !== null && findContainingLeaf(this.app, focusedElement) !== null) {
+      return focusedElement;
     }
 
-    this.inspectionArmed = false;
-    const clickedElement = asElement(event);
+    return this.focusedElements.get(document) ?? null;
+  }
 
-    if (clickedElement === null) {
-      new Notice("The clicked context could not be inspected.");
-      return;
+  private togglePanePicker(): void {
+    const starting = !this.picker.active;
+    this.picker.toggle();
+    if (starting) this.showPickerStatus(PICKER_PROMPT);
+  }
+
+  private startPanePicker(): void {
+    this.picker.start();
+    this.showPickerStatus(PICKER_PROMPT);
+  }
+
+  private showPickerStatus(message: string): void {
+    const fragment = createFragment();
+    const cancelButton = createEl("button");
+    cancelButton.type = "button";
+    cancelButton.className = "scoped-hotkey-picker__cancel";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => this.picker.cancel());
+    fragment.append(message, " ", cancelButton);
+
+    if (this.pickerNotice === null) {
+      this.pickerNotice = new Notice(fragment, 0);
+    } else {
+      this.pickerNotice.setMessage(fragment);
     }
+  }
 
-    const context = inspectWorkspaceContext(this.app, clickedElement, this.activeLeaf);
-    new ContextModal(this.app, context).open();
+  private hidePickerStatus(): void {
+    this.pickerNotice?.hide();
+    this.pickerNotice = null;
+  }
+
+  private handlePickerStop(reason: PanePickerStopReason): void {
+    this.hidePickerStatus();
+
+    if (reason === "escape" || reason === "command") {
+      new Notice("Pane inspection canceled.");
+    } else if (reason === "timeout") {
+      new Notice("Pane inspection timed out.");
+    }
+  }
+
+  private readonly handleFocusIn = (event: FocusEvent): void => {
+    const focusedElement = asElement(event);
+    if (focusedElement !== null && findContainingLeaf(this.app, focusedElement) !== null) {
+      this.focusedElements.set(focusedElement.ownerDocument, focusedElement);
+    }
   };
 
   private observeDocument(document: Document): void {
-    if (this.observedDocuments.has(document)) {
-      return;
-    }
-
-    document.addEventListener("click", this.handleClick, true);
+    if (this.observedDocuments.has(document)) return;
+    this.picker.observe(document);
+    document.addEventListener("focusin", this.handleFocusIn, true);
     this.observedDocuments.add(document);
   }
 
   private stopObservingDocument(document: Document): void {
-    document.removeEventListener("click", this.handleClick, true);
     this.observedDocuments.delete(document);
+    this.picker.unobserve(document);
+    document.removeEventListener("focusin", this.handleFocusIn, true);
+    this.focusedElements.delete(document);
   }
 }
