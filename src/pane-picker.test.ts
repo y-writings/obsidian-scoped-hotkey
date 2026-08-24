@@ -120,6 +120,26 @@ describe("PanePicker", () => {
     },
   );
 
+  it.each(["pointerdown", "pointerup", "mousedown", "mouseup"])(
+    "leaves %s propagation and its default action untouched while inactive",
+    (type) => {
+      const target = document.body.appendChild(document.createElement("button"));
+      const handler = vi.fn();
+      target.addEventListener(type, handler);
+
+      const event = type.startsWith("pointer")
+        ? dispatchPointerEvent(target, type)
+        : dispatchMouseEvent(target, type);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(handler).toHaveBeenCalledOnce();
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onInvalidSelection).not.toHaveBeenCalled();
+      expect(onStop).not.toHaveBeenCalled();
+      expect(picker.active).toBe(false);
+    },
+  );
+
   it("leaves normal clicks and activation untouched while inactive", () => {
     const checkbox = document.body.appendChild(document.createElement("input"));
     checkbox.type = "checkbox";
@@ -292,6 +312,30 @@ describe("PanePicker", () => {
     const cancelControl = document.body.appendChild(document.createElement("button"));
     cancelControl.className = "scoped-hotkey-picker__cancel";
     const target = cancelControl.appendChild(document.createElement("span"));
+    const pointerHandler = vi.fn();
+    const clickHandler = vi.fn(() => picker.cancel());
+    target.addEventListener("pointerdown", pointerHandler);
+    target.addEventListener("click", clickHandler);
+    picker.start();
+
+    const pointerEvent = dispatchPointerEvent(target, "pointerdown");
+    const clickEvent = dispatchMouseEvent(target, "click");
+
+    expect(pointerEvent.defaultPrevented).toBe(false);
+    expect(clickEvent.defaultPrevented).toBe(false);
+    expect(pointerHandler).toHaveBeenCalledOnce();
+    expect(clickHandler).toHaveBeenCalledOnce();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onInvalidSelection).not.toHaveBeenCalled();
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onStop).toHaveBeenCalledWith("escape");
+  });
+
+  it("does not intercept pointer or click events inside a shadow-hosted cancel control", () => {
+    const cancelHost = document.body.appendChild(document.createElement("div"));
+    cancelHost.className = "scoped-hotkey-picker__cancel";
+    const shadowRoot = cancelHost.attachShadow({ mode: "open" });
+    const target = shadowRoot.appendChild(document.createElement("button"));
     const pointerHandler = vi.fn();
     const clickHandler = vi.fn(() => picker.cancel());
     target.addEventListener("pointerdown", pointerHandler);

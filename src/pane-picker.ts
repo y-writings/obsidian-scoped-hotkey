@@ -10,6 +10,17 @@ interface PanePickerOptions {
   onStop: (reason: PanePickerStopReason) => void;
 }
 
+function isElement(target: EventTarget): target is Element {
+  return (
+    typeof target === "object" &&
+    target !== null &&
+    "tagName" in target &&
+    "ownerDocument" in target &&
+    "closest" in target &&
+    typeof target.closest === "function"
+  );
+}
+
 export class PanePicker {
   private readonly documents = new Set<Document>();
   private highlightedPane: HTMLElement | null = null;
@@ -103,8 +114,12 @@ export class PanePicker {
   };
 
   private isPickerControl(event: Event): boolean {
-    const element = asElement(event);
-    return element !== null && element.closest(".scoped-hotkey-picker__cancel") !== null;
+    return event
+      .composedPath()
+      .some(
+        (target) =>
+          isElement(target) && target.closest(".scoped-hotkey-picker__cancel") !== null,
+      );
   }
 
   private consume(event: Event): void {
