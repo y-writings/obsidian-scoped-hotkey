@@ -227,7 +227,7 @@ describe("ContextModal", () => {
       "Recommended because workspace area and Markdown mode can change during normal use.",
     );
     expect(matchRange.textContent).toBe(
-      "Matches Markdown regardless of workspace area or Markdown mode.",
+      'Matches view type "markdown" regardless of workspace area or Markdown mode.',
     );
     expect(condition.textContent).toBe('viewType: "markdown"');
     expect(Array.from(actions.querySelectorAll("button"), ({ textContent }) => textContent)).toEqual(
@@ -280,14 +280,16 @@ describe("ContextModal", () => {
     select.dispatchEvent(new Event("change"));
 
     expect(matchRange.textContent).toBe(
-      "Matches Markdown in source mode, regardless of workspace area.",
+      'Matches view type "markdown" in source mode, regardless of workspace area.',
     );
     expect(condition.textContent).toBe('viewType: "markdown"\nmode: source');
 
     select.value = "exact";
     select.dispatchEvent(new Event("change"));
 
-    expect(matchRange.textContent).toBe("Matches Markdown in source mode in the main area.");
+    expect(matchRange.textContent).toBe(
+      'Matches view type "markdown" in source mode in the main area.',
+    );
     expect(condition.textContent).toBe(
       'area: main\nviewType: "markdown"\nmode: source',
     );

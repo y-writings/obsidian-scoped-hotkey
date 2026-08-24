@@ -417,16 +417,20 @@ describe("scope conditions", () => {
   });
 
   it("describes each scope in human terms", () => {
-    const context = createContext({ area: "right-sidebar", mode: "source" });
+    const context = createContext({
+      area: "right-sidebar",
+      viewLabel: "Project Plan",
+      mode: "source",
+    });
 
     expect(describeCondition(context, "view")).toBe(
-      "Matches Markdown regardless of workspace area or Markdown mode.",
+      'Matches view type "markdown" regardless of workspace area or Markdown mode.',
     );
     expect(describeCondition(context, "view-and-mode")).toBe(
-      "Matches Markdown in source mode, regardless of workspace area.",
+      'Matches view type "markdown" in source mode, regardless of workspace area.',
     );
     expect(describeCondition(context, "exact")).toBe(
-      "Matches Markdown in source mode in the right-sidebar area.",
+      'Matches view type "markdown" in source mode in the right-sidebar area.',
     );
   });
 

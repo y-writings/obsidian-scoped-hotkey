@@ -202,7 +202,7 @@ export function formatCondition(context: WorkspaceContext, preset: ScopePreset):
 
 export function describeCondition(context: WorkspaceContext, preset: ScopePreset): string {
   assertScopePresetAvailable(context, preset);
-  const view = context.viewLabel || context.viewType;
+  const view = `view type ${JSON.stringify(context.viewType)}`;
 
   if (preset === "view") {
     return `Matches ${view} regardless of workspace area or Markdown mode.`;
