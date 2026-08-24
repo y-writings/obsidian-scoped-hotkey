@@ -75,6 +75,8 @@ export default class ScopedHotkeyPlugin extends Plugin {
   }
 
   private inspectCurrentContext(): void {
+    if (this.picker.active) this.picker.toggle();
+
     const activeLeaf = this.activeLeaf ?? this.app.workspace.getMostRecentLeaf();
     const relevantDocument =
       activeLeaf?.view.containerEl.ownerDocument ?? this.app.workspace.containerEl.ownerDocument;

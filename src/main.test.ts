@@ -346,17 +346,27 @@ describe("ScopedHotkeyPlugin pane picker", () => {
     expect(currentModal().context.selectedElement?.tagName).toBe("button");
   });
 
-  it("starts the picker and status from a modal's Inspect another action", () => {
+  it("stops a modal-started picker before inspecting the current context", () => {
     const fixture = createWorkspaceFixture();
-    fixture.addLeaf({ area: "main" });
+    const leaf = fixture.addLeaf({ area: "main" });
     const plugin = loadPlugin(fixture.app);
     runCommand(plugin, "inspect-current-context");
-
     currentModal().actions.onInspectAnother();
-
     const notice = currentPersistentNotice();
     expect(notice.hidden).toBe(false);
     expect(notice.messageEl.textContent).toContain("Select a workspace pane.");
+
+    runCommand(plugin, "inspect-current-context");
+    const button = leaf.view.containerEl.appendChild(document.createElement("button"));
+    const handler = vi.fn();
+    button.addEventListener("click", handler);
+    const event = dispatchClick(button);
+
+    expect(notice.hidden).toBe(true);
+    expect(noticeHarness.messages.at(-1)).toBe("Pane inspection canceled.");
+    expect(openedModals).toHaveLength(2);
+    expect(event.defaultPrevented).toBe(false);
+    expect(handler).toHaveBeenCalledOnce();
   });
 });
 
