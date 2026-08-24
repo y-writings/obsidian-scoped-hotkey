@@ -27,6 +27,7 @@ interface LeafOptions {
   viewType: string;
   viewLabel?: string;
   mode?: MarkdownViewModeType;
+  ownerDocument?: Document;
 }
 
 function createWorkspace() {
@@ -48,10 +49,16 @@ function createWorkspace() {
     },
   } as unknown as App;
 
-  function addLeaf({ area, viewType, viewLabel = viewType, mode }: LeafOptions): WorkspaceLeaf {
-    const containerEl = document.createElement("div");
+  function addLeaf({
+    area,
+    viewType,
+    viewLabel = viewType,
+    mode,
+    ownerDocument = document,
+  }: LeafOptions): WorkspaceLeaf {
+    const containerEl = ownerDocument.createElement("div");
     containerEl.dataset.viewType = viewType;
-    document.body.append(containerEl);
+    ownerDocument.body.append(containerEl);
     const viewProperties = {
       containerEl,
       getViewType: () => viewType,
@@ -230,6 +237,57 @@ describe("inspectSelectedWorkspaceContext", () => {
     expect(context?.focusedElement).toMatchObject({ tagName: "input", isTextInput: true });
   });
 
+  it("compares distinct leaves by identity when their metadata is identical", () => {
+    const { app, addLeaf } = createWorkspace();
+    const options = {
+      area: "main",
+      viewType: "markdown",
+      viewLabel: "Notes",
+      mode: "source",
+    } as const;
+    const selectedLeaf = addLeaf(options);
+    const focusedLeaf = addLeaf(options);
+    const activeLeaf = addLeaf(options);
+    const selected = document.createElement("button");
+    const focused = document.createElement("input");
+    selectedLeaf.view.containerEl.append(selected);
+    focusedLeaf.view.containerEl.append(focused);
+
+    const context = inspectSelectedWorkspaceContext(app, selected, focused, activeLeaf);
+
+    expect(context).toMatchObject({
+      area: "main",
+      viewType: "markdown",
+      mode: "source",
+      focusMatchesInspectedLeaf: false,
+      activeLeafMatchesInspectedLeaf: false,
+    });
+  });
+
+  it("compares focused and selected leaves across documents", () => {
+    const { app, addLeaf } = createWorkspace();
+    const popoutDocument = document.implementation.createHTMLDocument("Pop-out");
+    const selectedLeaf = addLeaf({
+      area: "popout-window",
+      viewType: "markdown",
+      mode: "source",
+      ownerDocument: popoutDocument,
+    });
+    const focusedLeaf = addLeaf({ area: "main", viewType: "markdown", mode: "source" });
+    const selected = popoutDocument.createElement("button");
+    const focused = document.createElement("input");
+    selectedLeaf.view.containerEl.append(selected);
+    focusedLeaf.view.containerEl.append(focused);
+
+    const context = inspectSelectedWorkspaceContext(app, selected, focused, focusedLeaf);
+
+    expect(context).toMatchObject({
+      area: "popout-window",
+      focusMatchesInspectedLeaf: false,
+      activeLeafMatchesInspectedLeaf: false,
+    });
+  });
+
   it.each([
     ["popout-window", "popout-view"],
     ["unknown", "unknown-view"],
@@ -372,7 +430,7 @@ describe("scope conditions", () => {
     );
   });
 
-  it("does not offer or output an unknown area", () => {
+  it("does not offer an exact scope for an unknown area", () => {
     const context = createContext({
       area: "unknown",
       viewType: "custom-view",
@@ -381,11 +439,6 @@ describe("scope conditions", () => {
     });
 
     expect(getScopePresets(context).map(({ id }) => id)).toEqual(["view", "view-and-mode"]);
-    expect(formatCondition(context, "exact")).toBe(
-      'viewType: "custom-view"\nmode: source',
-    );
-    expect(formatCondition(context, "exact")).not.toContain("unknown");
-    expect(describeCondition(context, "exact")).not.toContain("unknown");
   });
 
   it("omits mode scopes when the view has no mode", () => {
@@ -393,6 +446,24 @@ describe("scope conditions", () => {
 
     expect(getScopePresets(context).map(({ id }) => id)).toEqual(["view", "exact"]);
     expect(formatCondition(context, "exact")).toBe('area: main\nviewType: "search"');
+  });
+
+  it.each([
+    ["view-and-mode", createContext({ mode: null })],
+    ["exact", createContext({ area: "unknown", mode: "source" })],
+  ] as const)("rejects unavailable %s formatting", (preset, context) => {
+    expect(() => formatCondition(context, preset)).toThrow(
+      new RangeError(`Scope preset "${preset}" is unavailable for this context.`),
+    );
+  });
+
+  it.each([
+    ["view-and-mode", createContext({ mode: null })],
+    ["exact", createContext({ area: "unknown", mode: "source" })],
+  ] as const)("rejects unavailable %s descriptions", (preset, context) => {
+    expect(() => describeCondition(context, preset)).toThrow(
+      new RangeError(`Scope preset "${preset}" is unavailable for this context.`),
+    );
   });
 
   it.each(["null", "true", "#hidden", "foo: bar", "[notes]"])(
@@ -403,4 +474,11 @@ describe("scope conditions", () => {
       expect(formatCondition(context, "view")).toBe(`viewType: ${JSON.stringify(viewType)}`);
     },
   );
+
+  it("JSON-quotes view types containing a quote, backslash, and newline", () => {
+    const viewType = 'quoted "value" with \\ slash\nand newline';
+    const context = createContext({ viewType });
+
+    expect(formatCondition(context, "view")).toBe(`viewType: ${JSON.stringify(viewType)}`);
+  });
 });

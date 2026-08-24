@@ -184,9 +184,10 @@ export function getScopePresets(context: WorkspaceContext): ScopePresetOption[] 
 }
 
 export function formatCondition(context: WorkspaceContext, preset: ScopePreset): string {
+  assertScopePresetAvailable(context, preset);
   const lines: string[] = [];
 
-  if (preset === "exact" && context.area !== "unknown") {
+  if (preset === "exact") {
     lines.push(`area: ${context.area}`);
   }
 
@@ -200,9 +201,10 @@ export function formatCondition(context: WorkspaceContext, preset: ScopePreset):
 }
 
 export function describeCondition(context: WorkspaceContext, preset: ScopePreset): string {
+  assertScopePresetAvailable(context, preset);
   const view = context.viewLabel || context.viewType;
 
-  if (preset === "view" || (preset === "view-and-mode" && context.mode === null)) {
+  if (preset === "view") {
     return `Matches ${view} regardless of workspace area or Markdown mode.`;
   }
 
@@ -211,9 +213,13 @@ export function describeCondition(context: WorkspaceContext, preset: ScopePreset
   }
 
   const mode = context.mode === null ? "" : ` in ${context.mode} mode`;
-  return context.area === "unknown"
-    ? `Matches ${view}${mode}.`
-    : `Matches ${view}${mode} in the ${context.area} area.`;
+  return `Matches ${view}${mode} in the ${context.area} area.`;
+}
+
+function assertScopePresetAvailable(context: WorkspaceContext, preset: ScopePreset): void {
+  if (!getScopePresets(context).some(({ id }) => id === preset)) {
+    throw new RangeError(`Scope preset "${preset}" is unavailable for this context.`);
+  }
 }
 
 export function findContainingLeaf(app: App, element: Element): WorkspaceLeaf | null {
