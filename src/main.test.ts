@@ -216,14 +216,14 @@ describe("ScopedHotkeyPlugin commands and current context", () => {
     const fixture = createWorkspaceFixture();
     fixture.addLeaf({ area: "main" });
     const focusedLeaf = fixture.addLeaf({ area: "left-sidebar" });
-    const plugin = loadPlugin(fixture.app);
     const workspaceInput = focusedLeaf.view.containerEl.appendChild(
       document.createElement("input"),
     );
     workspaceInput.className = "workspace-input";
+    workspaceInput.focus();
+    const plugin = loadPlugin(fixture.app);
     const paletteInput = document.body.appendChild(document.createElement("input"));
     paletteInput.className = "prompt-input";
-    workspaceInput.focus();
     paletteInput.focus();
 
     runCommand(plugin, "inspect-current-context");

@@ -159,16 +159,20 @@ export default class ScopedHotkeyPlugin extends Plugin {
   }
 
   private readonly handleFocusIn = (event: FocusEvent): void => {
-    const focusedElement = asElement(event);
+    this.rememberWorkspaceFocus(asElement(event));
+  };
+
+  private rememberWorkspaceFocus(focusedElement: Element | null): void {
     if (focusedElement !== null && findContainingLeaf(this.app, focusedElement) !== null) {
       this.focusedElements.set(focusedElement.ownerDocument, focusedElement);
     }
-  };
+  }
 
   private observeDocument(document: Document): void {
     if (this.observedDocuments.has(document)) return;
     this.picker.observe(document);
     document.addEventListener("focusin", this.handleFocusIn, true);
+    this.rememberWorkspaceFocus(getDeepestActiveElement(document));
     this.observedDocuments.add(document);
   }
 
