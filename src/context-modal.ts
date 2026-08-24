@@ -110,10 +110,9 @@ export class ContextModal extends Modal {
     const diagnostics = this.contentEl.createEl("details", {
       cls: "scoped-hotkey-inspector__diagnostics",
     });
-    const diagnosticsSummary = diagnostics.createEl("summary", {
+    diagnostics.createEl("summary", {
       text: "Advanced diagnostics",
     });
-    diagnosticsSummary.tabIndex = 0;
     diagnostics.createEl("p", {
       text: "DOM values may change across Obsidian or plugin versions.",
     });

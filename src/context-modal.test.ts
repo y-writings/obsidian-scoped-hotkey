@@ -151,6 +151,14 @@ function getButton(container: ParentNode, label: string): HTMLButtonElement {
   return button as HTMLButtonElement;
 }
 
+function getTableValue(container: ParentNode, label: string): string | null {
+  const row = Array.from(container.querySelectorAll("tr")).find(
+    (candidate) => candidate.querySelector("th")?.textContent === label,
+  );
+  expect(row, `Expected to find the ${label} row`).toBeDefined();
+  return getRequiredElement<HTMLElement>(row as HTMLTableRowElement, "td code").textContent;
+}
+
 function setClipboard(clipboard: Pick<Clipboard, "writeText"> | undefined): void {
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
@@ -306,7 +314,7 @@ describe("ContextModal", () => {
     expect(Array.from(buttons, ({ tabIndex }) => tabIndex)).toEqual([0, 0]);
     expect(details).toBeInstanceOf(HTMLDetailsElement);
     expect(summary.tagName).toBe("SUMMARY");
-    expect(summary.tabIndex).toBe(0);
+    expect(summary.hasAttribute("tabindex")).toBe(false);
   });
 
   it("keeps diagnostics closed and reports stable comparison fields", () => {
@@ -331,6 +339,26 @@ describe("ContextModal", () => {
     expect(diagnostics.textContent).toContain(
       "DOM values may change across Obsidian or plugin versions.",
     );
+  });
+
+  it.each([
+    [true, "true"],
+    [false, "false"],
+    [null, "Not available"],
+  ] as const)("renders the %s leaf comparison value", (comparison, expected) => {
+    const modal = openModal(
+      createContext({
+        focusMatchesInspectedLeaf: comparison,
+        activeLeafMatchesInspectedLeaf: comparison,
+      }),
+    );
+    const diagnostics = getRequiredElement<HTMLDetailsElement>(
+      modal.contentEl,
+      ".scoped-hotkey-inspector__diagnostics",
+    );
+
+    expect(getTableValue(diagnostics, "Focus matches inspected leaf")).toBe(expected);
+    expect(getTableValue(diagnostics, "Active leaf matches inspected leaf")).toBe(expected);
   });
 
   it.each([
