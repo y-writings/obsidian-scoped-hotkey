@@ -171,7 +171,7 @@ function currentPersistentNotice(): NoticeState {
 }
 
 beforeAll(() => {
-  Object.defineProperties(globalThis, {
+  Object.defineProperties(window, {
     createFragment: {
       configurable: true,
       value: () => document.createDocumentFragment(),

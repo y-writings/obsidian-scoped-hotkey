@@ -1,5 +1,3 @@
-/* eslint-disable obsidianmd/prefer-create-el -- Test doubles cannot rely on Obsidian's DOM extensions. */
-
 interface CommandDouble {
   id: string;
   name: string;
