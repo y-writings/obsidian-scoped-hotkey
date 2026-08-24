@@ -405,11 +405,14 @@ describe("ScopedHotkeyPlugin document lifecycle", () => {
     const target = leaf.view.containerEl.appendChild(document.createElement("button"));
     const targetHandler = vi.fn();
     target.addEventListener("click", targetHandler);
+    runCommand(plugin, "inspect-current-context");
+    const modalActions = currentModal().actions;
     runCommand(plugin, "inspect-next-click-context");
     const notice = currentPersistentNotice();
 
     plugin.runRegisteredCleanups();
     loadedPlugin = null;
+    modalActions.onInspectAnother();
     const event = dispatchClick(target);
 
     expect(notice.hidden).toBe(true);

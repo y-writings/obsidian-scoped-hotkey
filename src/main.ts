@@ -121,12 +121,12 @@ export default class ScopedHotkeyPlugin extends Plugin {
   private togglePanePicker(): void {
     const starting = !this.picker.active;
     this.picker.toggle();
-    if (starting) this.showPickerStatus(PICKER_PROMPT);
+    if (starting && this.picker.active) this.showPickerStatus(PICKER_PROMPT);
   }
 
   private startPanePicker(): void {
     this.picker.start();
-    this.showPickerStatus(PICKER_PROMPT);
+    if (this.picker.active) this.showPickerStatus(PICKER_PROMPT);
   }
 
   private showPickerStatus(message: string): void {
