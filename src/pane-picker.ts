@@ -23,6 +23,7 @@ function isElement(target: EventTarget): target is Element {
 
 export class PanePicker {
   private readonly documents = new Set<Document>();
+  private destroyed = false;
   private highlightedPane: HTMLElement | null = null;
   private timeoutId: number | null = null;
   private waiting = false;
@@ -34,7 +35,7 @@ export class PanePicker {
   }
 
   observe(document: Document): void {
-    if (this.documents.has(document)) return;
+    if (this.destroyed || this.documents.has(document)) return;
     document.addEventListener("pointermove", this.handlePointerMove, true);
     document.addEventListener("pointerdown", this.blockSelectionEvent, true);
     document.addEventListener("pointerup", this.blockSelectionEvent, true);
@@ -59,7 +60,7 @@ export class PanePicker {
   }
 
   start(): void {
-    if (this.waiting) return;
+    if (this.destroyed || this.waiting) return;
     this.waiting = true;
     this.timeoutId = window.setTimeout(() => this.finish("timeout"), this.options.timeoutMs);
   }
@@ -74,11 +75,20 @@ export class PanePicker {
   }
 
   destroy(): void {
-    if (this.waiting) this.finish("unload");
+    if (this.destroyed) return;
+    this.destroyed = true;
+    const wasWaiting = this.waiting;
+    this.waiting = false;
+
+    if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
+    this.timeoutId = null;
+    this.clearHighlight();
 
     for (const document of [...this.documents]) {
       this.unobserve(document);
     }
+
+    if (wasWaiting) this.options.onStop("unload");
   }
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
@@ -108,7 +118,7 @@ export class PanePicker {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (!this.waiting || event.key !== "Escape" || this.isPickerControl(event)) return;
+    if (!this.waiting || event.key !== "Escape") return;
     this.consume(event);
     this.finish("escape");
   };

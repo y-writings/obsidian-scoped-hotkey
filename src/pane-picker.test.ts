@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PanePicker } from "./pane-picker";
+import { PanePicker, type PanePickerStopReason } from "./pane-picker";
 
 const TARGET_CLASS = "scoped-hotkey-picker-target";
 
@@ -55,6 +55,7 @@ describe("PanePicker", () => {
 
   afterEach(() => {
     picker.destroy();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -99,6 +100,29 @@ describe("PanePicker", () => {
 
     expect(checkbox.checked).toBe(false);
     expect(onSelect).toHaveBeenCalledWith(checkbox);
+  });
+
+  it("reports the selected stop before invoking the selection callback", () => {
+    const callbacks: string[] = [];
+    picker.destroy();
+    picker = new PanePicker({
+      timeoutMs: 30_000,
+      resolvePane: (element) => element.closest<HTMLElement>(".workspace-leaf"),
+      onSelect: () => {
+        callbacks.push("select");
+      },
+      onInvalidSelection,
+      onStop: (reason) => {
+        callbacks.push(`stop:${reason}`);
+      },
+    });
+    picker.observe(document);
+    const target = appendLeaf().appendChild(document.createElement("button"));
+    picker.start();
+
+    dispatchMouseEvent(target, "click");
+
+    expect(callbacks).toEqual(["stop:selected", "select"]);
   });
 
   it.each(["pointerdown", "pointerup", "mousedown", "mouseup"])(
@@ -279,6 +303,29 @@ describe("PanePicker", () => {
     expect(picker.active).toBe(false);
   });
 
+  it("consumes Escape inside the picker cancel control", () => {
+    const cancelControl = document.body.appendChild(document.createElement("button"));
+    cancelControl.className = "scoped-hotkey-picker__cancel";
+    const target = cancelControl.appendChild(document.createElement("span"));
+    const handler = vi.fn();
+    target.addEventListener("keydown", handler);
+    picker.start();
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+
+    target.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(handler).not.toHaveBeenCalled();
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onStop).toHaveBeenCalledWith("escape");
+    expect(picker.active).toBe(false);
+  });
+
   it("toggles between starting and command cancellation", () => {
     picker.toggle();
 
@@ -399,6 +446,96 @@ describe("PanePicker", () => {
     picker.destroy();
 
     expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("completes terminal teardown before propagating an unload callback error", () => {
+    picker.destroy();
+    const error = new Error("unload failed");
+    const throwingOnStop = vi.fn((reason: PanePickerStopReason) => {
+      if (reason === "unload") throw error;
+    });
+    picker = new PanePicker({
+      timeoutMs: 30_000,
+      resolvePane: (element) => element.closest<HTMLElement>(".workspace-leaf"),
+      onSelect,
+      onInvalidSelection,
+      onStop: throwingOnStop,
+    });
+    const leaf = appendLeaf();
+    const target = leaf.appendChild(document.createElement("button"));
+    const popoutDocument = document.implementation.createHTMLDocument("Pop-out");
+    const removeMainListener = vi.spyOn(document, "removeEventListener");
+    const removePopoutListener = vi.spyOn(popoutDocument, "removeEventListener");
+    picker.observe(document);
+    picker.observe(popoutDocument);
+    picker.start();
+    dispatchPointerEvent(target, "pointermove");
+
+    expect(() => picker.destroy()).toThrow(error);
+
+    expect(removeMainListener).toHaveBeenCalledTimes(7);
+    expect(removePopoutListener).toHaveBeenCalledTimes(7);
+    expect(leaf.classList.contains(TARGET_CLASS)).toBe(false);
+    expect(picker.active).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(throwingOnStop).toHaveBeenCalledOnce();
+    expect(throwingOnStop).toHaveBeenCalledWith("unload");
+
+    const extraDocument = document.implementation.createHTMLDocument("Extra");
+    const addExtraListener = vi.spyOn(extraDocument, "addEventListener");
+    picker.observe(extraDocument);
+    picker.start();
+    expect(picker.active).toBe(false);
+    picker.toggle();
+
+    expect(addExtraListener).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(throwingOnStop).toHaveBeenCalledOnce();
+  });
+
+  it("prevents an unload callback from reactivating or observing the picker", () => {
+    picker.destroy();
+    const extraDocument = document.implementation.createHTMLDocument("Extra");
+    const addExtraListener = vi.spyOn(extraDocument, "addEventListener");
+    const target = appendLeaf().appendChild(document.createElement("button"));
+    const targetHandler = vi.fn();
+    const callbackEvents: MouseEvent[] = [];
+    target.addEventListener("click", targetHandler);
+    const reentrantOnStop = vi.fn((reason: PanePickerStopReason) => {
+      if (reason !== "unload") return;
+      picker.start();
+      picker.observe(extraDocument);
+      callbackEvents.push(dispatchMouseEvent(target, "click"));
+    });
+    picker = new PanePicker({
+      timeoutMs: 30_000,
+      resolvePane: (element) => element.closest<HTMLElement>(".workspace-leaf"),
+      onSelect,
+      onInvalidSelection,
+      onStop: reentrantOnStop,
+    });
+    picker.observe(document);
+    picker.start();
+
+    picker.destroy();
+
+    expect(reentrantOnStop).toHaveBeenCalledOnce();
+    expect(reentrantOnStop).toHaveBeenCalledWith("unload");
+    expect(callbackEvents).toHaveLength(1);
+    expect(callbackEvents[0]?.defaultPrevented).toBe(false);
+    expect(targetHandler).toHaveBeenCalledOnce();
+    expect(addExtraListener).not.toHaveBeenCalled();
+    expect(picker.active).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+
+    picker.start();
+    picker.toggle();
+    picker.observe(extraDocument);
+
+    expect(reentrantOnStop).toHaveBeenCalledOnce();
+    expect(addExtraListener).not.toHaveBeenCalled();
+    expect(picker.active).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("does not duplicate timers, callbacks, or stale timeout effects", () => {
