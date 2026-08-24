@@ -13,7 +13,8 @@ export type WorkspaceArea =
   | "popout-window"
   | "unknown";
 
-export type LeafSource = "clicked-element" | "focused-element" | "active-leaf-event" | "none";
+export type ContextSource = "current" | "selected-pane";
+export type LeafSource = "focused-element" | "active-leaf-event" | "selected-element";
 
 export interface ElementContext {
   tagName: string;
@@ -25,13 +26,23 @@ export interface ElementContext {
 }
 
 export interface WorkspaceContext {
+  source: ContextSource;
   area: WorkspaceArea;
-  viewType: string | null;
-  viewLabel: string | null;
+  viewType: string;
+  viewLabel: string;
   mode: MarkdownViewModeType | null;
   leafSource: LeafSource;
-  clickedElement: ElementContext;
+  selectedElement: ElementContext | null;
   focusedElement: ElementContext | null;
+  focusMatchesInspectedLeaf: boolean | null;
+  activeLeafMatchesInspectedLeaf: boolean | null;
+}
+
+export type ScopePreset = "view" | "view-and-mode" | "exact";
+
+export interface ScopePresetOption {
+  id: ScopePreset;
+  label: string;
 }
 
 const NON_TEXT_INPUT_TYPES = new Set([
@@ -71,37 +82,78 @@ function asDomElement(target: EventTarget | null): Element | null {
   return target as Element;
 }
 
-export function inspectWorkspaceContext(
+export function inspectCurrentWorkspaceContext(
   app: App,
-  clickedElement: Element,
+  focusedElement: Element | null,
+  activeLeaf: WorkspaceLeaf | null,
+): WorkspaceContext | null {
+  const focusedLeaf = focusedElement === null ? null : findContainingLeaf(app, focusedElement);
+  const leaf = focusedLeaf ?? activeLeaf;
+
+  return leaf === null
+    ? null
+    : inspectLeaf(
+        app,
+        leaf,
+        "current",
+        focusedLeaf === null ? "active-leaf-event" : "focused-element",
+        null,
+        focusedElement,
+        focusedLeaf,
+        activeLeaf,
+      );
+}
+
+export function inspectSelectedWorkspaceContext(
+  app: App,
+  selectedElement: Element,
+  focusedElement: Element | null,
+  activeLeaf: WorkspaceLeaf | null,
+): WorkspaceContext | null {
+  const selectedLeaf = findContainingLeaf(app, selectedElement);
+
+  if (selectedLeaf === null) {
+    return null;
+  }
+
+  const focusedLeaf = focusedElement === null ? null : findContainingLeaf(app, focusedElement);
+  return inspectLeaf(
+    app,
+    selectedLeaf,
+    "selected-pane",
+    "selected-element",
+    selectedElement,
+    focusedElement,
+    focusedLeaf,
+    activeLeaf,
+  );
+}
+
+function inspectLeaf(
+  app: App,
+  leaf: WorkspaceLeaf,
+  source: ContextSource,
+  leafSource: LeafSource,
+  selectedElement: Element | null,
+  focusedElement: Element | null,
+  focusedLeaf: WorkspaceLeaf | null,
   activeLeaf: WorkspaceLeaf | null,
 ): WorkspaceContext {
-  const focusedElement = findDeepestActiveElement(clickedElement.ownerDocument);
-  const clickedLeaf = findContainingLeaf(app, clickedElement);
-  const focusedLeaf = focusedElement === null ? null : findContainingLeaf(app, focusedElement);
-  const sameDocumentActiveLeaf =
-    activeLeaf?.view.containerEl.ownerDocument === clickedElement.ownerDocument ? activeLeaf : null;
-  const leaf = clickedLeaf ?? focusedLeaf ?? sameDocumentActiveLeaf;
-
   return {
-    area: leaf === null ? "unknown" : classifyArea(app, leaf),
-    viewType: leaf?.view.getViewType() ?? null,
-    viewLabel: leaf?.view.getDisplayText() ?? null,
-    mode: leaf?.view instanceof MarkdownView ? leaf.view.getMode() : null,
-    leafSource:
-      clickedLeaf !== null
-        ? "clicked-element"
-        : focusedLeaf !== null
-          ? "focused-element"
-          : sameDocumentActiveLeaf !== null
-            ? "active-leaf-event"
-            : "none",
-    clickedElement: inspectElement(clickedElement),
+    source,
+    area: classifyArea(app, leaf),
+    viewType: leaf.view.getViewType(),
+    viewLabel: leaf.view.getDisplayText(),
+    mode: leaf.view instanceof MarkdownView ? leaf.view.getMode() : null,
+    leafSource,
+    selectedElement: selectedElement === null ? null : inspectElement(selectedElement),
     focusedElement: focusedElement === null ? null : inspectElement(focusedElement),
+    focusMatchesInspectedLeaf: focusedElement === null ? null : focusedLeaf === leaf,
+    activeLeafMatchesInspectedLeaf: activeLeaf === null ? null : activeLeaf === leaf,
   };
 }
 
-function findDeepestActiveElement(document: Document): Element | null {
+export function getDeepestActiveElement(document: Document): Element | null {
   let focusedElement = document.activeElement;
 
   while (focusedElement !== null) {
@@ -117,21 +169,54 @@ function findDeepestActiveElement(document: Document): Element | null {
   return null;
 }
 
-export function formatStableCondition(context: WorkspaceContext): string {
-  const lines = [`area: ${context.area}`];
-
-  if (context.viewType !== null) {
-    lines.push(`viewType: ${JSON.stringify(context.viewType)}`);
-  }
+export function getScopePresets(context: WorkspaceContext): ScopePresetOption[] {
+  const presets: ScopePresetOption[] = [{ id: "view", label: "View type" }];
 
   if (context.mode !== null) {
+    presets.push({ id: "view-and-mode", label: "View type and mode" });
+  }
+
+  if (context.area !== "unknown") {
+    presets.push({ id: "exact", label: "Exact location" });
+  }
+
+  return presets;
+}
+
+export function formatCondition(context: WorkspaceContext, preset: ScopePreset): string {
+  const lines: string[] = [];
+
+  if (preset === "exact" && context.area !== "unknown") {
+    lines.push(`area: ${context.area}`);
+  }
+
+  lines.push(`viewType: ${JSON.stringify(context.viewType)}`);
+
+  if (preset !== "view" && context.mode !== null) {
     lines.push(`mode: ${context.mode}`);
   }
 
   return lines.join("\n");
 }
 
-function findContainingLeaf(app: App, element: Element): WorkspaceLeaf | null {
+export function describeCondition(context: WorkspaceContext, preset: ScopePreset): string {
+  const view = context.viewLabel || context.viewType;
+
+  if (preset === "view" || (preset === "view-and-mode" && context.mode === null)) {
+    return `Matches ${view} regardless of workspace area or Markdown mode.`;
+  }
+
+  if (preset === "view-and-mode") {
+    return `Matches ${view} in ${context.mode} mode, regardless of workspace area.`;
+  }
+
+  const mode = context.mode === null ? "" : ` in ${context.mode} mode`;
+  return context.area === "unknown"
+    ? `Matches ${view}${mode}.`
+    : `Matches ${view}${mode} in the ${context.area} area.`;
+}
+
+export function findContainingLeaf(app: App, element: Element): WorkspaceLeaf | null {
   let match: WorkspaceLeaf | null = null;
   let matchContainer: HTMLElement | null = null;
 

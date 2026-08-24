@@ -1,97 +1,322 @@
 // @vitest-environment happy-dom
 
-import type { App } from "obsidian";
+import {
+  type App,
+  MarkdownView,
+  type MarkdownViewModeType,
+  type WorkspaceLeaf,
+  WorkspaceWindow,
+} from "obsidian";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   asElement,
-  formatStableCondition,
-  inspectWorkspaceContext,
+  describeCondition,
+  findContainingLeaf,
+  formatCondition,
+  getDeepestActiveElement,
+  getScopePresets,
+  inspectCurrentWorkspaceContext,
+  inspectSelectedWorkspaceContext,
+  type WorkspaceArea,
   type WorkspaceContext,
 } from "./context";
 
-const app = {
-  workspace: {
-    iterateAllLeaves: () => undefined,
-  },
-} as unknown as App;
+interface LeafOptions {
+  area: WorkspaceArea;
+  viewType: string;
+  viewLabel?: string;
+  mode?: MarkdownViewModeType;
+}
+
+function createWorkspace() {
+  const rootSplit = {};
+  const leftSplit = {};
+  const rightSplit = {};
+  const unknownRoot = {};
+  const leaves: WorkspaceLeaf[] = [];
+  const app = {
+    workspace: {
+      rootSplit,
+      leftSplit,
+      rightSplit,
+      iterateAllLeaves: (callback: (leaf: WorkspaceLeaf) => void) => {
+        for (const leaf of leaves) {
+          callback(leaf);
+        }
+      },
+    },
+  } as unknown as App;
+
+  function addLeaf({ area, viewType, viewLabel = viewType, mode }: LeafOptions): WorkspaceLeaf {
+    const containerEl = document.createElement("div");
+    containerEl.dataset.viewType = viewType;
+    document.body.append(containerEl);
+    const viewProperties = {
+      containerEl,
+      getViewType: () => viewType,
+      getDisplayText: () => viewLabel,
+    };
+    const view =
+      mode === undefined
+        ? viewProperties
+        : Object.assign(Object.create(MarkdownView.prototype) as MarkdownView, viewProperties, {
+            getMode: () => mode,
+          });
+    const root =
+      area === "main"
+        ? rootSplit
+        : area === "left-sidebar"
+          ? leftSplit
+          : area === "right-sidebar"
+            ? rightSplit
+            : unknownRoot;
+    const container =
+      area === "popout-window"
+        ? (Object.create(WorkspaceWindow.prototype) as WorkspaceWindow)
+        : {};
+    const leaf = {
+      view,
+      getContainer: () => container,
+      getRoot: () => root,
+    } as unknown as WorkspaceLeaf;
+    leaves.push(leaf);
+    return leaf;
+  }
+
+  return { app, addLeaf };
+}
+
+function createContext(overrides: Partial<WorkspaceContext> = {}): WorkspaceContext {
+  return {
+    source: "current",
+    area: "main",
+    viewType: "markdown",
+    viewLabel: "Markdown",
+    mode: null,
+    leafSource: "active-leaf-event",
+    selectedElement: null,
+    focusedElement: null,
+    focusMatchesInspectedLeaf: null,
+    activeLeafMatchesInspectedLeaf: true,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   document.body.replaceChildren();
 });
 
-describe("inspectWorkspaceContext", () => {
+describe("inspectCurrentWorkspaceContext", () => {
+  it("uses the focused main editor instead of a different active leaf", () => {
+    const { app, addLeaf } = createWorkspace();
+    const mainLeaf = addLeaf({
+      area: "main",
+      viewType: "markdown",
+      viewLabel: "Notes",
+      mode: "source",
+    });
+    const rightLeaf = addLeaf({ area: "right-sidebar", viewType: "backlink" });
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    mainLeaf.view.containerEl.append(editor);
+
+    const context = inspectCurrentWorkspaceContext(app, editor, rightLeaf);
+
+    expect(context).toMatchObject({
+      source: "current",
+      area: "main",
+      viewType: "markdown",
+      viewLabel: "Notes",
+      mode: "source",
+      leafSource: "focused-element",
+      selectedElement: null,
+      focusMatchesInspectedLeaf: true,
+      activeLeafMatchesInspectedLeaf: false,
+    });
+    expect(context?.focusedElement).toMatchObject({
+      tagName: "div",
+      isContentEditable: true,
+      isTextInput: true,
+    });
+  });
+
+  it.each([
+    ["left-sidebar", "left-view"],
+    ["right-sidebar", "right-view"],
+  ] as const)("prefers a focused input in the %s", (area, viewType) => {
+    const { app, addLeaf } = createWorkspace();
+    const mainLeaf = addLeaf({ area: "main", viewType: "markdown", mode: "preview" });
+    const sidebarLeaf = addLeaf({ area, viewType });
+    const input = document.createElement("input");
+    sidebarLeaf.view.containerEl.append(input);
+
+    const context = inspectCurrentWorkspaceContext(app, input, mainLeaf);
+
+    expect(context).toMatchObject({
+      area,
+      viewType,
+      leafSource: "focused-element",
+      activeLeafMatchesInspectedLeaf: false,
+    });
+  });
+
+  it("falls back to the active leaf when modal focus is excluded by the caller", () => {
+    const { app, addLeaf } = createWorkspace();
+    const mainLeaf = addLeaf({ area: "main", viewType: "markdown", mode: "preview" });
+
+    const context = inspectCurrentWorkspaceContext(app, null, mainLeaf);
+
+    expect(context).toMatchObject({
+      source: "current",
+      area: "main",
+      mode: "preview",
+      leafSource: "active-leaf-event",
+      focusedElement: null,
+      focusMatchesInspectedLeaf: null,
+      activeLeafMatchesInspectedLeaf: true,
+    });
+  });
+
+  it("returns null when neither focused nor active leaf exists", () => {
+    const { app } = createWorkspace();
+
+    expect(inspectCurrentWorkspaceContext(app, null, null)).toBeNull();
+  });
+
+  it.each(["source", "preview"] as const)("reports Markdown %s mode", (mode) => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area: "main", viewType: "markdown", mode });
+
+    expect(inspectCurrentWorkspaceContext(app, null, leaf)?.mode).toBe(mode);
+  });
+});
+
+describe("inspectSelectedWorkspaceContext", () => {
+  it("does not replace an invalid selected target with another focused leaf", () => {
+    const { app, addLeaf } = createWorkspace();
+    const rightLeaf = addLeaf({ area: "right-sidebar", viewType: "right-view" });
+    const ribbonButton = document.createElement("button");
+    const focusedInput = document.createElement("input");
+    rightLeaf.view.containerEl.append(focusedInput);
+    document.body.append(ribbonButton);
+
+    expect(
+      inspectSelectedWorkspaceContext(app, ribbonButton, focusedInput, rightLeaf),
+    ).toBeNull();
+  });
+
+  it("reports when selected, focused, and active leaves differ", () => {
+    const { app, addLeaf } = createWorkspace();
+    const mainLeaf = addLeaf({ area: "main", viewType: "markdown", mode: "source" });
+    const rightLeaf = addLeaf({ area: "right-sidebar", viewType: "right-view" });
+    const leftLeaf = addLeaf({ area: "left-sidebar", viewType: "left-view" });
+    const selected = document.createElement("button");
+    const focused = document.createElement("input");
+    rightLeaf.view.containerEl.append(selected);
+    leftLeaf.view.containerEl.append(focused);
+
+    const context = inspectSelectedWorkspaceContext(app, selected, focused, mainLeaf);
+
+    expect(context).toMatchObject({
+      source: "selected-pane",
+      area: "right-sidebar",
+      viewType: "right-view",
+      leafSource: "selected-element",
+      focusMatchesInspectedLeaf: false,
+      activeLeafMatchesInspectedLeaf: false,
+    });
+    expect(context?.selectedElement).toMatchObject({ tagName: "button", isTextInput: false });
+    expect(context?.focusedElement).toMatchObject({ tagName: "input", isTextInput: true });
+  });
+
+  it.each([
+    ["popout-window", "popout-view"],
+    ["unknown", "unknown-view"],
+  ] as const)("classifies a selected leaf in the %s area", (area, viewType) => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area, viewType });
+    const selected = document.createElement("div");
+    leaf.view.containerEl.append(selected);
+
+    expect(inspectSelectedWorkspaceContext(app, selected, null, null)).toMatchObject({
+      area,
+      viewType,
+    });
+  });
+});
+
+describe("element and shadow-root diagnostics", () => {
   it("reports plaintext-only content as editable", () => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area: "main", viewType: "markdown" });
     const element = document.createElement("div");
     element.contentEditable = "plaintext-only";
-    document.body.append(element);
+    leaf.view.containerEl.append(element);
 
-    const context = inspectWorkspaceContext(app, element, null);
+    const context = inspectSelectedWorkspaceContext(app, element, null, null);
 
-    expect(context.clickedElement.isContentEditable).toBe(true);
-    expect(context.clickedElement.isTextInput).toBe(true);
+    expect(context?.selectedElement).toMatchObject({
+      isContentEditable: true,
+      isTextInput: true,
+    });
   });
 
   it("respects contenteditable=false inside editable content", () => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area: "main", viewType: "markdown" });
     const editableParent = document.createElement("div");
     editableParent.contentEditable = "true";
     const element = document.createElement("span");
     element.contentEditable = "false";
     editableParent.append(element);
-    document.body.append(editableParent);
+    leaf.view.containerEl.append(editableParent);
 
-    const context = inspectWorkspaceContext(app, element, null);
+    const context = inspectSelectedWorkspaceContext(app, element, null, null);
 
-    expect(context.clickedElement.isContentEditable).toBe(false);
-    expect(context.clickedElement.isTextInput).toBe(false);
+    expect(context?.selectedElement).toMatchObject({
+      isContentEditable: false,
+      isTextInput: false,
+    });
   });
 
-  it("inspects the focused element inside an open shadow root", () => {
+  it.each([
+    ["input", null, true],
+    ["input", "checkbox", false],
+    ["textarea", null, true],
+    ["div", "textbox", true],
+  ] as const)("classifies %s with type or role %s", (tagName, typeOrRole, isTextInput) => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area: "main", viewType: "test-view" });
+    const element = document.createElement(tagName);
+    if (tagName === "input" && typeOrRole !== null) {
+      element.setAttribute("type", typeOrRole);
+    } else if (typeOrRole !== null) {
+      element.setAttribute("role", typeOrRole);
+    }
+    leaf.view.containerEl.append(element);
+
+    const context = inspectSelectedWorkspaceContext(app, element, null, null);
+
+    expect(context?.selectedElement?.isTextInput).toBe(isTextInput);
+  });
+
+  it("finds focus and a containing leaf through an open shadow root", () => {
+    const { app, addLeaf } = createWorkspace();
+    const leaf = addLeaf({ area: "main", viewType: "shadow-view" });
     const host = document.createElement("div");
     const shadowRoot = host.attachShadow({ mode: "open" });
     const input = document.createElement("input");
     shadowRoot.append(input);
-    document.body.append(host);
+    leaf.view.containerEl.append(host);
     input.focus();
 
-    const context = inspectWorkspaceContext(app, host, null);
-
-    expect(context.focusedElement?.tagName).toBe("input");
-    expect(context.focusedElement?.isTextInput).toBe(true);
-  });
-
-  it("resolves a containing leaf through the shadow root host", () => {
-    const rootSplit = {};
-    const container = document.createElement("div");
-    const host = document.createElement("div");
-    const shadowRoot = host.attachShadow({ mode: "open" });
-    const input = document.createElement("input");
-    shadowRoot.append(input);
-    container.append(host);
-    document.body.append(container);
-    const leaf = {
-      view: {
-        containerEl: container,
-        getViewType: () => "shadow-view",
-        getDisplayText: () => "Shadow view",
-      },
-      getContainer: () => ({}),
-      getRoot: () => rootSplit,
-    };
-    const shadowApp = {
-      workspace: {
-        rootSplit,
-        leftSplit: {},
-        rightSplit: {},
-        iterateAllLeaves: (callback: (candidate: typeof leaf) => void) => callback(leaf),
-      },
-    } as unknown as App;
-
-    const context = inspectWorkspaceContext(shadowApp, input, null);
-
-    expect(context.area).toBe("main");
-    expect(context.viewType).toBe("shadow-view");
-    expect(context.leafSource).toBe("clicked-element");
+    expect(getDeepestActiveElement(document)).toBe(input);
+    expect(findContainingLeaf(app, input)).toBe(leaf);
+    expect(inspectCurrentWorkspaceContext(app, input, null)).toMatchObject({
+      viewType: "shadow-view",
+      leafSource: "focused-element",
+    });
   });
 });
 
@@ -110,19 +335,72 @@ describe("asElement", () => {
   });
 });
 
-describe("formatStableCondition", () => {
+describe("scope conditions", () => {
+  it("offers presets only when their fields are available", () => {
+    const context = createContext({ area: "main", mode: "source" });
+
+    expect(getScopePresets(context)).toEqual([
+      { id: "view", label: "View type" },
+      { id: "view-and-mode", label: "View type and mode" },
+      { id: "exact", label: "Exact location" },
+    ]);
+  });
+
+  it("formats view, mode, and exact scopes as AND fields", () => {
+    const context = createContext({ area: "main", mode: "preview" });
+
+    expect(formatCondition(context, "view")).toBe('viewType: "markdown"');
+    expect(formatCondition(context, "view-and-mode")).toBe(
+      'viewType: "markdown"\nmode: preview',
+    );
+    expect(formatCondition(context, "exact")).toBe(
+      'area: main\nviewType: "markdown"\nmode: preview',
+    );
+  });
+
+  it("describes each scope in human terms", () => {
+    const context = createContext({ area: "right-sidebar", mode: "source" });
+
+    expect(describeCondition(context, "view")).toBe(
+      "Matches Markdown regardless of workspace area or Markdown mode.",
+    );
+    expect(describeCondition(context, "view-and-mode")).toBe(
+      "Matches Markdown in source mode, regardless of workspace area.",
+    );
+    expect(describeCondition(context, "exact")).toBe(
+      "Matches Markdown in source mode in the right-sidebar area.",
+    );
+  });
+
+  it("does not offer or output an unknown area", () => {
+    const context = createContext({
+      area: "unknown",
+      viewType: "custom-view",
+      viewLabel: "Custom view",
+      mode: "source",
+    });
+
+    expect(getScopePresets(context).map(({ id }) => id)).toEqual(["view", "view-and-mode"]);
+    expect(formatCondition(context, "exact")).toBe(
+      'viewType: "custom-view"\nmode: source',
+    );
+    expect(formatCondition(context, "exact")).not.toContain("unknown");
+    expect(describeCondition(context, "exact")).not.toContain("unknown");
+  });
+
+  it("omits mode scopes when the view has no mode", () => {
+    const context = createContext({ area: "main", viewType: "search", mode: null });
+
+    expect(getScopePresets(context).map(({ id }) => id)).toEqual(["view", "exact"]);
+    expect(formatCondition(context, "exact")).toBe('area: main\nviewType: "search"');
+  });
+
   it.each(["null", "true", "#hidden", "foo: bar", "[notes]"])(
     "quotes the view type %s as a YAML string",
     (viewType) => {
-      const context = {
-        area: "main",
-        viewType,
-        mode: null,
-      } as WorkspaceContext;
+      const context = createContext({ viewType });
 
-      expect(formatStableCondition(context)).toBe(
-        `area: main\nviewType: ${JSON.stringify(viewType)}`,
-      );
+      expect(formatCondition(context, "view")).toBe(`viewType: ${JSON.stringify(viewType)}`);
     },
   );
 });
