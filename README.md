@@ -3,14 +3,27 @@
 Scoped Hotkey is an Obsidian plugin for inspecting the workspace context that
 future scoped hotkey rules can use.
 
-The current phase provides the **Inspect next click context** command. Run the
-command, click a workspace pane, and the plugin shows:
+The primary **Inspect current context** command immediately reports the active
+workspace and keyboard-focus context. It ignores command-palette and inspector
+modal focus so the result follows the same context boundary intended for future
+scoped-hotkey dispatch.
+
+Use **Select pane to inspect** or the result modal's **Inspect another pane**
+action to inspect an inactive pane. While the picker is active, the plugin:
+
+- outlines selectable workspace panes
+- consumes the selection click without activating the original UI
+- supports Cancel, Escape, command-toggle cancellation, and a 30-second timeout
+
+The result shows:
 
 - workspace area (`main`, `left-sidebar`, `right-sidebar`, or `popout-window`)
 - view type and display label
 - Markdown mode (`source` or `preview`)
-- clicked and focused DOM element diagnostics
-- a minimal YAML condition using stable context values
+- `View type`, `View type and mode`, and `Exact location` scope presets
+- a plain-language description of where the generated condition matches
+- a one-click copy action with success or failure feedback
+- focused and selected DOM details under collapsed advanced diagnostics
 
 Hotkey assignment and dispatch are intentionally outside the scope of this phase.
 
@@ -34,7 +47,13 @@ src/
   context.ts        Workspace context collection and classification
   context.test.ts   Workspace context regression tests
   context-modal.ts  Inspector result UI
-  main.ts           Plugin lifecycle and one-shot click capture
+  context-modal.test.ts
+                     Inspector result UI tests
+  pane-picker.ts    Safe one-shot pane selection state
+  pane-picker.test.ts
+                     Pane selection and event-safety tests
+  main.ts           Plugin lifecycle and inspector commands
+  main.test.ts      Command and lifecycle integration tests
 manifest.json       Obsidian plugin metadata
 styles.css          Inspector modal styles
 ```

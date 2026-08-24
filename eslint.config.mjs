@@ -31,7 +31,7 @@ export default defineConfig(
   },
   ...obsidianmd.configs.recommended,
   {
-    files: ["src/**/*.test.ts"],
+    files: ["src/**/*.test.ts", "src/obsidian.mock.ts"],
     rules: {
       "obsidianmd/prefer-create-el": "off",
     },
